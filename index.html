@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexus Soft Tech - Sistema de Administração</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div id="root" class="min-h-screen bg-gray-100">
+      <p class="text-center text-red-500">
+        Carregando aplicação... Verifique o console (F12) se persistir.
+      </p>
+    </div>
+
+    <script type="text/javascript">
+      if (typeof React === "undefined")
+        console.error("Erro: React não carregado.");
+      if (typeof ReactDOM === "undefined")
+        console.error("Erro: ReactDOM não carregado.");
+      if (typeof Babel === "undefined")
+        console.error("Erro: Babel não carregado.");
+      if (typeof Chart === "undefined")
+        console.error("Erro: Chart.js não carregado.");
+      if (typeof jspdf === "undefined")
+        console.error("Erro: jsPDF não carregado.");
+    </script>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+      const { jsPDF } = window.jspdf;
+
+      // Componente de Notificação Personalizado
+      function Notification({ id, message, type, onClose }) {
+        useEffect(() => {
+          const timer = setTimeout(() => onClose(id), 3000);
+          return () => clearTimeout(timer);
+        }, [id, onClose]);
+
+        return (
+          <div
+            className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg text-white animate-fade-in ${
+              type === "success" ? "bg-green-600" : "bg-red-600"
+            }`}
+          >
+            <p>{message}</p>
+            <button
+              onClick={() => onClose(id)}
+              className="absolute top-1 right-1 text-white"
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+        );
+      }
+
+      // Componente Principal
+      function App() {
+        const [isLoggedIn, setIsLoggedIn] = useState(false);
+        const [currentPage, setCurrentPage] = useState("dashboard");
+        const [clients, setClients] = useState([]);
+        const [receivables, setReceivables] = useState([]);
+        const [payables, setPayables] = useState([]);
+        const [projects, setProjects] = useState([]);
+        const [notifications, setNotifications] = useState([]);
+        const [customNotifications, setCustomNotifications] = useState([]);
+
+        // Função para adicionar notificação personalizada
+        const addNotification = (message, type = "success") => {
+          const id = Date.now();
+          setCustomNotifications((prev) => [...prev, { id, message, type }]);
+        };
+
+        // Função para remover notificação personalizada
+        const removeNotification = (id) => {
+          setCustomNotifications((prev) =>
+            prev.filter((notif) => notif.id !== id)
+          );
+        };
+
+        // Verificar login
+        useEffect(() => {
+          const token = localStorage.getItem("authToken");
+          if (token === "loggedIn") setIsLoggedIn(true);
+        }, []);
+
+        // Carregar dados do localStorage
+        useEffect(() => {
+          if (isLoggedIn) {
+            try {
+              const storedClients = JSON.parse(
+                localStorage.getItem("clients") || "[]"
+              );
+              const storedReceivables = JSON.parse(
+                localStorage.getItem("receivables") || "[]"
+              );
+              const storedPayables = JSON.parse(
+                localStorage.getItem("payables") || "[]"
+              );
+              const storedProjects = JSON.parse(
+                localStorage.getItem("projects") || "[]"
+              );
+              setClients(storedClients);
+              setReceivables(storedReceivables);
+              setPayables(storedPayables);
+              setProjects(storedProjects);
+            } catch (error) {
+              console.error("Erro ao carregar localStorage:", error);
+              addNotification("Erro ao carregar dados!", "error");
+            }
+          }
+        }, [isLoggedIn]);
+
+        // Salvar dados no localStorage
+        useEffect(() => {
+          if (isLoggedIn) {
+            try {
+              localStorage.setItem("clients", JSON.stringify(clients));
+              localStorage.setItem("receivables", JSON.stringify(receivables));
+              localStorage.setItem("payables", JSON.stringify(payables));
+              localStorage.setItem("projects", JSON.stringify(projects));
+            } catch (error) {
+              console.error("Erro ao salvar localStorage:", error);
+              addNotification("Erro ao salvar dados!", "error");
+            }
+          }
+        }, [clients, receivables, payables, projects]);
+
+        // Gerar notificações para contas próximas do vencimento
+        useEffect(() => {
+          if (isLoggedIn) {
+            const today = new Date();
+            const threeDaysFromNow = new Date(today);
+            threeDaysFromNow.setDate(today.getDate() + 3);
+
+            const newNotifications = [];
+            [...receivables, ...payables].forEach((item) => {
+              const dueDate = new Date(item.dueDate);
+              if (
+                item.status === "Pendente" &&
+                dueDate <= threeDaysFromNow &&
+                dueDate >= today
+              ) {
+                newNotifications.push({
+                  id: item.id,
+                  message: `Conta "${
+                    item.description
+                  }" vence em ${dueDate.toLocaleDateString("pt-BR")}!`,
+                  type: item.clientId ? "receivable" : "payable",
+                });
+              }
+            });
+            setNotifications(newNotifications);
+          }
+        }, [receivables, payables, isLoggedIn]);
+
+        // Logout
+        const handleLogout = () => {
+          localStorage.removeItem("authToken");
+          setIsLoggedIn(false);
+          setCurrentPage("dashboard");
+          addNotification("Logout realizado com sucesso!");
+        };
+
+        if (!isLoggedIn) {
+          return (
+            <LoginScreen
+              setIsLoggedIn={setIsLoggedIn}
+              addNotification={addNotification}
+            />
+          );
+        }
+
+        // Navegação
+        const renderPage = () => {
+          switch (currentPage) {
+            case "dashboard":
+              return (
+                <Dashboard
+                  clients={clients}
+                  receivables={receivables}
+                  payables={payables}
+                />
+              );
+            case "clients":
+              return (
+                <Clients
+                  clients={clients}
+                  setClients={setClients}
+                  addNotification={addNotification}
+                />
+              );
+            case "receivables":
+              return (
+                <Receivables
+                  clients={clients}
+                  receivables={receivables}
+                  setReceivables={setReceivables}
+                  addNotification={addNotification}
+                />
+              );
+            case "payables":
+              return (
+                <Payables
+                  payables={payables}
+                  setPayables={setPayables}
+                  addNotification={addNotification}
+                />
+              );
+            case "projects":
+              return (
+                <Projects
+                  clients={clients}
+                  projects={projects}
+                  setProjects={setProjects}
+                  addNotification={addNotification}
+                />
+              );
+            case "reports":
+              return (
+                <Reports
+                  clients={clients}
+                  receivables={receivables}
+                  payables={payables}
+                  addNotification={addNotification}
+                />
+              );
+            default:
+              return <Dashboard />;
+          }
+        };
+
+        return (
+          <div className="flex h-screen bg-gradient-to-br from-gray-100 to-blue-50">
+            {/* Notificações Personalizadas */}
+            {customNotifications.map((notif) => (
+              <Notification
+                key={notif.id}
+                id={notif.id}
+                message={notif.message}
+                type={notif.type}
+                onClose={removeNotification}
+              />
+            ))}
+            {/* Sidebar */}
+            <div className="w-64 bg-blue-900 text-white p-4 shadow-lg">
+              <h1 className="text-2xl font-bold mb-6 flex items-center">
+                <i className="fas fa-rocket mr-2"></i> Nexus Soft Tech
+              </h1>
+              <nav>
+                <ul>
+                  {[
+                    {
+                      page: "dashboard",
+                      icon: "fas fa-tachometer-alt",
+                      label: "Dashboard",
+                    },
+                    {
+                      page: "clients",
+                      icon: "fas fa-users",
+                      label: "Clientes",
+                    },
+                    {
+                      page: "receivables",
+                      icon: "fas fa-money-check-alt",
+                      label: "Contas a Receber",
+                    },
+                    {
+                      page: "payables",
+                      icon: "fas fa-file-invoice-dollar",
+                      label: "Contas a Pagar",
+                    },
+                    {
+                      page: "projects",
+                      icon: "fas fa-project-diagram",
+                      label: "Projetos",
+                    },
+                    {
+                      page: "reports",
+                      icon: "fas fa-chart-bar",
+                      label: "Relatórios",
+                    },
+                  ].map((item) => (
+                    <li key={item.page} className="mb-2">
+                      <button
+                        onClick={() => setCurrentPage(item.page)}
+                        className={`w-full text-left p-2 rounded flex items-center transition-all duration-200 hover:bg-blue-700 ${
+                          currentPage === item.page ? "bg-blue-600" : ""
+                        }`}
+                      >
+                        <i className={`${item.icon} mr-2`}></i> {item.label}
+                      </button>
+                    </li>
+                  ))}
+                  <li className="mt-4">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left p-2 rounded flex items-center transition-all duration-200 hover:bg-red-700"
+                    >
+                      <i className="fas fa-sign-out-alt mr-2"></i> Sair
+                    </button>
+                  </li>
+                </ul>
+              </nav>
+            </div>
+
+            {/* Conteúdo Principal */}
+            <div className="flex-1 p-8 overflow-auto">
+              {/* Notificações de Vencimento */}
+              {notifications.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {notifications.map((notif) => (
+                    <div
+                      key={notif.id}
+                      className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded animate-fade-in"
+                    >
+                      <p>{notif.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {renderPage()}
+            </div>
+          </div>
+        );
+      }
+
+      // Componente de Login
+      function LoginScreen({ setIsLoggedIn, addNotification }) {
+        const [username, setUsername] = useState("");
+        const [password, setPassword] = useState("");
+        const [error, setError] = useState("");
+
+        const handleLogin = (e) => {
+          e.preventDefault();
+          if (username === "lucasmelo" && password === "admin123") {
+            localStorage.setItem("authToken", "loggedIn");
+            setIsLoggedIn(true);
+            addNotification("Login bem-sucedido!");
+          } else {
+            setError("Usuário ou senha incorretos!");
+            addNotification("Falha no login!", "error");
+          }
+        };
+
+        return (
+          <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-100 to-gray-200">
+            <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+              <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
+                Login - Nexus Soft Tech
+              </h2>
+              {error && <p className="text-red-500 mb-4">{error}</p>}
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Usuário"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  placeholder="Senha"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleLogin}
+                  className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                >
+                  Entrar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Dashboard
+      function Dashboard({ clients, receivables, payables }) {
+        const barChartRef = useRef(null);
+        const pieChartRef = useRef(null);
+
+        const totalReceivables = receivables.reduce(
+          (sum, r) => sum + (r.status === "Pendente" ? r.value : 0),
+          0
+        );
+        const totalPayables = payables.reduce(
+          (sum, p) => sum + (p.status === "Pendente" ? p.value : 0),
+          0
+        );
+
+        // Dados para gráficos
+        const receivablesByMonth = Array(12).fill(0);
+        const payablesByMonth = Array(12).fill(0);
+        receivables.forEach((r) => {
+          if (r.status === "Pendente") {
+            const month = new Date(r.dueDate).getMonth();
+            receivablesByMonth[month] += r.value;
+          }
+        });
+        payables.forEach((p) => {
+          if (p.status === "Pendente") {
+            const month = new Date(p.dueDate).getMonth();
+            payablesByMonth[month] += p.value;
+          }
+        });
+
+        const companies = clients.reduce((acc, c) => {
+          const company = c.company || "Autônomo";
+          acc[company] = (acc[company] || 0) + 1;
+          return acc;
+        }, {});
+
+        // Gráfico de Barras
+        useEffect(() => {
+          if (barChartRef.current) {
+            const ctx = barChartRef.current.getContext("2d");
+            const chart = new Chart(ctx, {
+              type: "bar",
+              data: {
+                labels: [
+                  "Jan",
+                  "Fev",
+                  "Mar",
+                  "Abr",
+                  "Mai",
+                  "Jun",
+                  "Jul",
+                  "Ago",
+                  "Set",
+                  "Out",
+                  "Nov",
+                  "Dez",
+                ],
+                datasets: [
+                  {
+                    label: "Contas a Receber",
+                    data: receivablesByMonth,
+                    backgroundColor: "rgba(54, 162, 235, 0.6)",
+                  },
+                  {
+                    label: "Contas a Pagar",
+                    data: payablesByMonth,
+                    backgroundColor: "rgba(255, 99, 132, 0.6)",
+                  },
+                ],
+              },
+              options: {
+                responsive: true,
+                scales: {
+                  y: { beginAtZero: true },
+                },
+              },
+            });
+            return () => chart.destroy();
+          }
+        }, [receivables, payables]);
+
+        // Gráfico de Pizza
+        useEffect(() => {
+          if (pieChartRef.current) {
+            const ctx = pieChartRef.current.getContext("2d");
+            const chart = new Chart(ctx, {
+              type: "pie",
+              data: {
+                labels: Object.keys(companies),
+                datasets: [
+                  {
+                    data: Object.values(companies),
+                    backgroundColor: [
+                      "rgba(54, 162, 235, 0.6)",
+                      "rgba(255, 99, 132, 0.6)",
+                      "rgba(75, 192, 192, 0.6)",
+                      "rgba(255, 206, 86, 0.6)",
+                      "rgba(153, 102, 255, 0.6)",
+                    ],
+                  },
+                ],
+              },
+              options: { responsive: true },
+            });
+            return () => chart.destroy();
+          }
+        }, [clients]);
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">Dashboard</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-white p-4 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold text-gray-700">
+                  Clientes Ativos
+                </h3>
+                <p className="text-2xl text-blue-600">{clients.length}</p>
+              </div>
+              <div className="bg-white p-4 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold text-gray-700">
+                  Contas a Receber (Pendente)
+                </h3>
+                <p className="text-2xl text-green-600">
+                  R$ {totalReceivables.toFixed(2)}
+                </p>
+              </div>
+              <div className="bg-white p-4 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold text-gray-700">
+                  Contas a Pagar (Pendente)
+                </h3>
+                <p className="text-2xl text-red-600">
+                  R$ {totalPayables.toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white p-4 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">Contas por Mês</h3>
+                <canvas ref={barChartRef}></canvas>
+              </div>
+              <div className="bg-white p-4 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  Clientes por Empresa
+                </h3>
+                <canvas ref={pieChartRef}></canvas>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Clientes
+      function Clients({ clients, setClients, addNotification }) {
+        const [form, setForm] = useState({
+          id: null,
+          name: "",
+          email: "",
+          phone: "",
+          document: "",
+          address: "",
+          company: "",
+        });
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!form.name || !form.email) {
+            addNotification("Nome e e-mail são obrigatórios!", "error");
+            return;
+          }
+          const company = form.company || "Autônomo";
+          if (form.id) {
+            setClients(
+              clients.map((client) =>
+                client.id === form.id ? { ...form, company } : client
+              )
+            );
+          } else {
+            setClients([...clients, { ...form, id: Date.now(), company }]);
+          }
+          setForm({
+            id: null,
+            name: "",
+            email: "",
+            phone: "",
+            document: "",
+            address: "",
+            company: "",
+          });
+          addNotification("Cliente salvo com sucesso!");
+        };
+
+        const handleEdit = (client) => {
+          setForm(client);
+        };
+
+        const handleDelete = (id) => {
+          setClients(clients.filter((client) => client.id !== id));
+          addNotification("Cliente excluído com sucesso!");
+        };
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">
+              Cadastro de Clientes
+            </h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">
+                {form.id ? "Editar Cliente" : "Novo Cliente"}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  placeholder="Nome"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="email"
+                  placeholder="E-mail"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Telefone"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="CPF/CNPJ"
+                  value={form.document}
+                  onChange={(e) =>
+                    setForm({ ...form, document: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Empresa (opcional)"
+                  value={form.company}
+                  onChange={(e) =>
+                    setForm({ ...form, company: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Endereço"
+                  value={form.address}
+                  onChange={(e) =>
+                    setForm({ ...form, address: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all col-span-2"
+                >
+                  {form.id ? "Atualizar" : "Cadastrar"}
+                </button>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Lista de Clientes</h3>
+              {clients.length === 0 ? (
+                <p className="text-gray-600">Nenhum cliente cadastrado.</p>
+              ) : (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="p-2 text-left">Nome</th>
+                      <th className="p-2 text-left">E-mail</th>
+                      <th className="p-2 text-left">Empresa</th>
+                      <th className="p-2 text-left">Telefone</th>
+                      <th className="p-2 text-left">CPF/CNPJ</th>
+                      <th className="p-2 text-left">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clients.map((client) => (
+                      <tr key={client.id} className="border-t hover:bg-gray-50">
+                        <td className="p-2">{client.name}</td>
+                        <td className="p-2">{client.email}</td>
+                        <td className="p-2">{client.company}</td>
+                        <td className="p-2">{client.phone}</td>
+                        <td className="p-2">{client.document}</td>
+                        <td className="p-2">
+                          <button
+                            onClick={() => handleEdit(client)}
+                            className="bg-yellow-500 text-white p-1 rounded mr-2 hover:bg-yellow-600"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => handleDelete(client.id)}
+                            className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Contas a Receber
+      function Receivables({
+        clients,
+        receivables,
+        setReceivables,
+        addNotification,
+      }) {
+        const [form, setForm] = useState({
+          id: null,
+          clientId: "",
+          description: "",
+          value: "",
+          dueDate: "",
+          status: "Pendente",
+        });
+        const [filter, setFilter] = useState("Todos");
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!form.clientId) {
+            addNotification("Selecione um cliente!", "error");
+            return;
+          }
+          if (!form.description || !form.value || !form.dueDate) {
+            addNotification(
+              "Descrição, valor e data de vencimento são obrigatórios!",
+              "error"
+            );
+            return;
+          }
+          if (form.id) {
+            setReceivables(
+              receivables.map((r) =>
+                r.id === form.id ? { ...r, value: parseFloat(form.value) } : r
+              )
+            );
+          } else {
+            setReceivables([
+              ...receivables,
+              { ...form, id: Date.now(), value: parseFloat(form.value) },
+            ]);
+          }
+          setForm({
+            id: null,
+            clientId: "",
+            description: "",
+            value: "",
+            dueDate: "",
+            status: "Pendente",
+          });
+          addNotification("Conta salva com sucesso!");
+        };
+
+        const handleEdit = (record) => {
+          setForm(record);
+        };
+
+        const handleDelete = (id) => {
+          setReceivables(receivables.filter((r) => r.id !== id));
+          addNotification("Conta excluída com sucesso!");
+        };
+
+        const getClient = (clientId) => {
+          return (
+            clients.find((c) => c.id === parseInt(clientId)) || {
+              name: "Desconhecido",
+              company: "N/A",
+              document: "N/A",
+            }
+          );
+        };
+
+        const generateReceipt = (record) => {
+          const client = getClient(record.clientId);
+          const doc = new jsPDF();
+          const today = new Date().toLocaleDateString("pt-BR");
+          const receiptNumber = `REC-${record.id}-${Date.now()}`;
+
+          // Cabeçalho
+          doc.setFontSize(20);
+          doc.text("Nexus Soft Tech", 20, 20);
+          doc.setFontSize(12);
+          doc.text("Recibo de Pagamento", 20, 30);
+          doc.text(`Número: ${receiptNumber}`, 20, 40);
+          doc.text(`Data: ${today}`, 20, 50);
+
+          // Dados do Cliente
+          doc.setFontSize(10);
+          doc.text(`Cliente: ${client.name}`, 20, 60);
+          doc.text(`Empresa: ${client.company}`, 20, 70);
+          doc.text(`CPF/CNPJ: ${client.document}`, 20, 80);
+
+          // Detalhes da Conta
+          doc.text(`Descrição: ${record.description}`, 20, 90);
+          doc.text(`Valor: R$ ${record.value.toFixed(2)}`, 20, 100);
+          doc.text(`Vencimento: ${record.dueDate}`, 20, 110);
+          doc.text(`Status: Pago`, 20, 120);
+
+          // Rodapé
+          doc.setFontSize(8);
+          doc.text("Nexus Soft Tech - Sistema de Gestão Empresarial", 20, 280);
+          doc.text("Contato: contato@nexussofttech.com", 20, 285);
+
+          const pdfBlob = doc.output("blob");
+          const pdfUrl = URL.createObjectURL(pdfBlob);
+          doc.save(`recibo_${receiptNumber}.pdf`);
+
+          // Link para WhatsApp
+          const reader = new FileReader();
+          reader.onload = () => {
+            const base64 = reader.result.split(",")[1];
+            const whatsappUrl = `https://api.whatsapp.com/send?text=Recibo%20de%20Pagamento%20${encodeURIComponent(
+              receiptNumber
+            )}%20-%20Nexus%20Soft%20Tech`;
+            window.open(whatsappUrl, "_blank");
+          };
+          reader.readAsDataURL(pdfBlob);
+
+          return pdfUrl;
+        };
+
+        const handleReceive = (record) => {
+          setReceivables(
+            receivables.map((r) =>
+              r.id === record.id ? { ...r, status: "Pago" } : r
+            )
+          );
+          generateReceipt(record);
+          addNotification("Conta recebida com sucesso! Recibo gerado.");
+        };
+
+        const filteredReceivables =
+          filter === "Todos"
+            ? receivables
+            : receivables.filter((r) => r.status === filter);
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">
+              Contas a Receber
+            </h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">
+                {form.id ? "Editar Conta" : "Nova Conta"}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <select
+                  value={form.clientId}
+                  onChange={(e) =>
+                    setForm({ ...form, clientId: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Selecione um cliente</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.company})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Descrição"
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm({ ...form, description: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="number"
+                  placeholder="Valor (R$)"
+                  value={form.value}
+                  onChange={(e) => setForm({ ...form, value: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) =>
+                    setForm({ ...form, dueDate: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+                </select>
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all col-span-2"
+                >
+                  {form.id ? "Atualizar" : "Adicionar"}
+                </button>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">
+                  Lista de Contas a Receber
+                </h3>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="p-2 border rounded"
+                >
+                  <option value="Todos">Todos</option>
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+                </select>
+              </div>
+              {clients.length === 0 ? (
+                <p className="text-gray-600">
+                  Cadastre clientes antes de adicionar contas.
+                </p>
+              ) : filteredReceivables.length === 0 ? (
+                <p className="text-gray-600">
+                  Nenhuma conta a receber cadastrada.
+                </p>
+              ) : (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="p-2 text-left">Cliente</th>
+                      <th className="p-2 text-left">Descrição</th>
+                      <th className="p-2 text-left">Valor</th>
+                      <th className="p-2 text-left">Vencimento</th>
+                      <th className="p-2 text-left">Status</th>
+                      <th className="p-2 text-left">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredReceivables.map((r) => (
+                      <tr key={r.id} className="border-t hover:bg-gray-50">
+                        <td className="p-2">
+                          {getClient(r.clientId).name} (
+                          {getClient(r.clientId).company})
+                        </td>
+                        <td className="p-2">{r.description}</td>
+                        <td className="p-2">R$ {r.value.toFixed(2)}</td>
+                        <td className="p-2">{r.dueDate}</td>
+                        <td className="p-2">{r.status}</td>
+                        <td className="p-2">
+                          {r.status === "Pendente" && (
+                            <button
+                              onClick={() => handleReceive(r)}
+                              className="bg-green-500 text-white p-1 rounded mr-2 hover:bg-green-600"
+                            >
+                              Receber
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleEdit(r)}
+                            className="bg-yellow-500 text-white p-1 rounded mr-2 hover:bg-yellow-600"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Contas a Pagar
+      function Payables({ payables, setPayables, addNotification }) {
+        const [form, setForm] = useState({
+          id: null,
+          description: "",
+          value: "",
+          dueDate: "",
+          status: "Pendente",
+        });
+        const [filter, setFilter] = useState("Todos");
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!form.description || !form.value || !form.dueDate) {
+            addNotification(
+              "Descrição, valor e data de vencimento são obrigatórios!",
+              "error"
+            );
+            return;
+          }
+          if (form.id) {
+            setPayables(
+              payables.map((p) =>
+                p.id === form.id
+                  ? { ...form, value: parseFloat(form.value) }
+                  : p
+              )
+            );
+          } else {
+            setPayables([
+              ...payables,
+              { ...form, id: Date.now(), value: parseFloat(form.value) },
+            ]);
+          }
+          setForm({
+            id: null,
+            description: "",
+            value: "",
+            dueDate: "",
+            status: "Pendente",
+          });
+          addNotification("Conta salva com sucesso!");
+        };
+
+        const handleDelete = (id) => {
+          setPayables(payables.filter((p) => p.id !== id));
+          addNotification("Conta excluída com sucesso!");
+        };
+
+        const filteredPayables =
+          filter === "Todos"
+            ? payables
+            : payables.filter((p) => p.status === filter);
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">
+              Contas a Pagar
+            </h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">
+                {form.id ? "Editar Conta" : "Nova Conta"}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  placeholder="Descrição"
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm({ ...form, description: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="number"
+                  placeholder="Valor (R$)"
+                  value={form.value}
+                  onChange={(e) => setForm({ ...form, value: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="date"
+                  value={form.dueDate}
+                  onChange={(e) =>
+                    setForm({ ...form, dueDate: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+                </select>
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all col-span-2"
+                >
+                  {form.id ? "Atualizar" : "Adicionar"}
+                </button>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">
+                  Lista de Contas a Pagar
+                </h3>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="p-2 border rounded"
+                >
+                  <option value="Todos">Todos</option>
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+                </select>
+              </div>
+              {filteredPayables.length === 0 ? (
+                <p className="text-gray-600">
+                  Nenhuma conta a pagar cadastrada.
+                </p>
+              ) : (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="p-2 text-left">Descrição</th>
+                      <th className="p-2 text-left">Valor</th>
+                      <th className="p-2 text-left">Vencimento</th>
+                      <th className="p-2 text-left">Status</th>
+                      <th className="p-2 text-left">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPayables.map((p) => (
+                      <tr key={p.id} className="border-t hover:bg-gray-50">
+                        <td className="p-2">{p.description}</td>
+                        <td className="p-2">R$ {p.value.toFixed(2)}</td>
+                        <td className="p-2">{p.dueDate}</td>
+                        <td className="p-2">{p.status}</td>
+                        <td className="p-2">
+                          <button
+                            onClick={() => setForm(p)}
+                            className="bg-yellow-500 text-white p-1 rounded mr-2 hover:bg-yellow-600"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Projetos
+      function Projects({ clients, projects, setProjects, addNotification }) {
+        const [form, setForm] = useState({
+          id: null,
+          clientId: "",
+          name: "",
+          deadline: "",
+          status: "Em Andamento",
+        });
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (!form.clientId || !form.name || !form.deadline) {
+            addNotification("Cliente, nome e prazo são obrigatórios!", "error");
+            return;
+          }
+          if (form.id) {
+            setProjects(
+              projects.map((p) => (p.id === form.id ? { ...form } : p))
+            );
+          } else {
+            setProjects([...projects, { ...form, id: Date.now() }]);
+          }
+          setForm({
+            id: null,
+            clientId: "",
+            name: "",
+            deadline: "",
+            status: "Em Andamento",
+          });
+          addNotification("Projeto salvo com sucesso!");
+        };
+
+        const handleEdit = (project) => {
+          setForm(project);
+        };
+
+        const handleDelete = (id) => {
+          setProjects(projects.filter((p) => p.id !== id));
+          addNotification("Projeto excluído com sucesso!");
+        };
+
+        const getClientName = (clientId) => {
+          const client = clients.find((c) => c.id === parseInt(clientId));
+          return client ? `${client.name} (${client.company})` : "Desconhecido";
+        };
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">
+              Gestão de Projetos
+            </h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">
+                {form.id ? "Editar Projeto" : "Novo Projeto"}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <select
+                  value={form.clientId}
+                  onChange={(e) =>
+                    setForm({ ...form, clientId: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Selecione um cliente</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name} ({client.company})
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Nome do Projeto"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="date"
+                  value={form.deadline}
+                  onChange={(e) =>
+                    setForm({ ...form, deadline: e.target.value })
+                  }
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <select
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Em Andamento">Em Andamento</option>
+                  <option value="Concluído">Concluído</option>
+                  <option value="Pausado">Pausado</option>
+                </select>
+                <button
+                  onClick={handleSubmit}
+                  className="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all col-span-2"
+                >
+                  {form.id ? "Atualizar" : "Adicionar"}
+                </button>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Lista de Projetos</h3>
+              {clients.length === 0 ? (
+                <p className="text-gray-600">
+                  Cadastre clientes antes de adicionar projetos.
+                </p>
+              ) : projects.length === 0 ? (
+                <p className="text-gray-600">Nenhum projeto cadastrado.</p>
+              ) : (
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-gray-200">
+                      <th className="p-2 text-left">Cliente</th>
+                      <th className="p-2 text-left">Projeto</th>
+                      <th className="p-2 text-left">Prazo</th>
+                      <th className="p-2 text-left">Status</th>
+                      <th className="p-2 text-left">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((p) => (
+                      <tr key={p.id} className="border-t hover:bg-gray-50">
+                        <td className="p-2">{getClientName(p.clientId)}</td>
+                        <td className="p-2">{p.name}</td>
+                        <td className="p-2">{p.deadline}</td>
+                        <td className="p-2">{p.status}</td>
+                        <td className="p-2">
+                          <button
+                            onClick={() => handleEdit(p)}
+                            className="bg-yellow-500 text-white p-1 rounded mr-2 hover:bg-yellow-600"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() => handleDelete(p.id)}
+                            className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
+                          >
+                            Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      // Componente Relatórios
+      function Reports({ clients, receivables, payables, addNotification }) {
+        const [startDate, setStartDate] = useState("");
+        const [endDate, setEndDate] = useState("");
+
+        const filterByDate = (items) => {
+          if (!startDate || !endDate) return items;
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          return items.filter((item) => {
+            const date = new Date(item.dueDate);
+            return date >= start && date <= end;
+          });
+        };
+
+        const exportCSV = (data, filename) => {
+          if (data.length === 0) {
+            addNotification("Nenhum dado para exportar!", "error");
+            return;
+          }
+          const csv = [
+            Object.keys(data[0]).join(","),
+            ...data.map((item) =>
+              Object.values(item)
+                .map((val) => `"${val}"`)
+                .join(",")
+            ),
+          ].join("\n");
+          const blob = new Blob([csv], { type: "text/csv" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+          addNotification("Exportado com sucesso!");
+        };
+
+        const exportPDF = (data, filename, title, columns) => {
+          if (data.length === 0) {
+            addNotification("Nenhum dado para exportar!", "error");
+            return;
+          }
+          const doc = new jsPDF();
+          const today = new Date().toLocaleDateString("pt-BR");
+
+          // Cabeçalho
+          doc.setFontSize(20);
+          doc.text("Nexus Soft Tech", 20, 20);
+          doc.setFontSize(14);
+          doc.text(title, 20, 30);
+          doc.setFontSize(10);
+          doc.text(`Gerado em: ${today}`, 20, 40);
+          if (startDate && endDate) {
+            doc.text(`Período: ${startDate} a ${endDate}`, 20, 50);
+          }
+
+          // Tabela
+          doc.autoTable({
+            startY: 60,
+            head: [columns.map((col) => col.header)],
+            body: data.map((item) =>
+              columns.map(
+                (col) =>
+                  (col.formatter
+                    ? col.formatter(item[col.key])
+                    : item[col.key]) || "N/A"
+              )
+            ),
+            theme: "grid",
+            styles: { fontSize: 8, cellPadding: 2 },
+            headStyles: {
+              fillColor: [30, 64, 175],
+              textColor: [255, 255, 255],
+            },
+          });
+
+          // Rodapé
+          doc.setFontSize(8);
+          doc.text(
+            "Nexus Soft Tech - Sistema de Gestão Empresarial",
+            20,
+            doc.internal.pageSize.height - 20
+          );
+          doc.text(
+            `Página ${doc.internal.getNumberOfPages()}`,
+            180,
+            doc.internal.pageSize.height - 20
+          );
+
+          doc.save(filename);
+          addNotification("PDF exportado com sucesso!");
+        };
+
+        const filteredReceivables = filterByDate(receivables);
+        const filteredPayables = filterByDate(payables);
+
+        const clientColumns = [
+          { header: "Nome", key: "name" },
+          { header: "E-mail", key: "email" },
+          { header: "Empresa", key: "company" },
+          { header: "Telefone", key: "phone" },
+          { header: "CPF/CNPJ", key: "document" },
+        ];
+
+        const receivableColumns = [
+          {
+            header: "Cliente",
+            key: "clientId",
+            formatter: (id) => {
+              const client = clients.find((c) => c.id === parseInt(id));
+              return client
+                ? `${client.name} (${client.company})`
+                : "Desconhecido";
+            },
+          },
+          { header: "Descrição", key: "description" },
+          {
+            header: "Valor",
+            key: "value",
+            formatter: (val) => `R$ ${val.toFixed(2)}`,
+          },
+          { header: "Vencimento", key: "dueDate" },
+          { header: "Status", key: "status" },
+        ];
+
+        const payableColumns = [
+          { header: "Descrição", key: "description" },
+          {
+            header: "Valor",
+            key: "value",
+            formatter: (val) => `R$ ${val.toFixed(2)}`,
+          },
+          { header: "Vencimento", key: "dueDate" },
+          { header: "Status", key: "status" },
+        ];
+
+        return (
+          <div className="animate-fade-in">
+            <h2 className="text-3xl font-bold mb-6 text-gray-800">
+              Relatórios
+            </h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">
+                Filtrar por Período
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="p-2 border rounded focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  Relatório de Clientes
+                </h3>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => exportCSV(clients, "clientes.csv")}
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar CSV
+                  </button>
+                  <button
+                    onClick={() =>
+                      exportPDF(
+                        clients,
+                        "clientes.pdf",
+                        "Relatório de Clientes",
+                        clientColumns
+                      )
+                    }
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  Relatório de Contas a Receber
+                </h3>
+                <div className="space-y-4">
+                  <button
+                    onClick={() =>
+                      exportCSV(filteredReceivables, "contas_receber.csv")
+                    }
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar CSV
+                  </button>
+                  <button
+                    onClick={() =>
+                      exportPDF(
+                        filteredReceivables,
+                        "contas_receber.pdf",
+                        "Relatório de Contas a Receber",
+                        receivableColumns
+                      )
+                    }
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  Relatório de Contas a Pagar
+                </h3>
+                <div className="space-y-4">
+                  <button
+                    onClick={() =>
+                      exportCSV(filteredPayables, "contas_pagar.csv")
+                    }
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar CSV
+                  </button>
+                  <button
+                    onClick={() =>
+                      exportPDF(
+                        filteredPayables,
+                        "contas_pagar.pdf",
+                        "Relatório de Contas a Pagar",
+                        payableColumns
+                      )
+                    }
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-4">
+                  Resumo Financeiro
+                </h3>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => {
+                      const summary = [
+                        {
+                          totalReceivables: filteredReceivables
+                            .reduce((sum, r) => sum + r.value, 0)
+                            .toFixed(2),
+                          totalPayables: filteredPayables
+                            .reduce((sum, p) => sum + p.value, 0)
+                            .toFixed(2),
+                          balance: (
+                            filteredReceivables.reduce(
+                              (sum, r) => sum + r.value,
+                              0
+                            ) -
+                            filteredPayables.reduce(
+                              (sum, p) => sum + p.value,
+                              0
+                            )
+                          ).toFixed(2),
+                        },
+                      ];
+                      exportPDF(
+                        summary,
+                        "resumo_financeiro.pdf",
+                        "Resumo Financeiro",
+                        [
+                          {
+                            header: "Total a Receber",
+                            key: "totalReceivables",
+                          },
+                          { header: "Total a Pagar", key: "totalPayables" },
+                          { header: "Saldo", key: "balance" },
+                        ]
+                      );
+                    }}
+                    className="w-full bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition-all"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // Renderizar a aplicação
+      try {
+        console.log("Iniciando renderização...");
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+        root.render(<App />);
+        console.log("Aplicação renderizada.");
+      } catch (error) {
+        console.error("Erro ao renderizar:", error);
+      }
+    </script>
+
+    <style>
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fade-in {
+        animation: fadeIn 0.5s ease-out;
+      }
+    </style>
+  </body>
+</html>
